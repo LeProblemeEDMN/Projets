@@ -1,0 +1,37 @@
+#version 330
+
+in vec3 norm;
+in mat4 vpM;
+
+in mat4 pM;
+in vec4 tm;
+out vec4 out_Color;
+const float M_PI=3.14;
+void main(void){
+	float z = gl_FragCoord.z; // depth-buffer value for the current pixel
+int occluding_points = 0;
+vec4 fPosition = tm ; // Really from vertex shader
+
+    const int NUM_SAMPLES = 10;
+    float R = 3.0f;
+    const float[10] steps = float[](0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f, 1.0f);
+    for (int sample_id = 0; sample_id < NUM_SAMPLES; sample_id++) {
+        // 1. Generate sample point in world space.
+        float ang = steps[sample_id];
+        vec4 sample_point = vec4(R * cos(2 * M_PI * ang) * sin(M_PI * ang) + fPosition.x,
+                                 R * sin(2 * M_PI * ang) * sin(M_PI * ang) + fPosition.y,
+                                 R * sin(M_PI * ang) + fPosition.z,
+                                 1.0f);
+        // 2. Transform sample point from view space to screen space to get its depth value.
+        sample_point =pM* vpM * sample_point; // Clip space
+        sample_point = sample_point / sample_point.w;           // Perspective division - Normalized device coordinate
+        float sample_depth = 0.5f * (sample_point.z + 1.0f);    // Viewport transform for z - window space
+
+        // 3. Check whether sample_point is behind current pixel depth.
+        if (sample_depth > z) { occluding_points++; }
+    }
+  float  occlusion_factor = float(occluding_points) / float(NUM_SAMPLES);
+  
+    
+	out_Color=fPosition;
+}

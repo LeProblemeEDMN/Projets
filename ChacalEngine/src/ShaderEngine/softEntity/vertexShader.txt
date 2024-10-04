@@ -1,0 +1,91 @@
+#version 400 core
+
+in vec3 positionId;
+in vec2 textureCoords;
+in vec3 normal;
+
+out vec2 tCoords;
+out vec3 surfaceNormal;
+out vec3 toCameraVector;
+out float visibility;
+out vec3 toPointVector[5];
+
+out vec3 worldPos;
+out vec3 reflectedVector;
+out vec3 refractedVector;
+out vec4 shadowCoords;
+
+uniform mat4 transformationMatrix;
+uniform mat4 projectionMatrix;
+uniform mat4 viewMatrix;
+uniform mat4 invViewMatrix;
+uniform mat4 toShadowMapSpace;
+
+uniform vec3[10] positionPoint;
+
+uniform vec3 posSoftPoint[10*10*2];
+uniform int sizeBody[3];
+
+uniform float[5] pointInUseVertex;
+uniform float useFakeLightning;
+
+uniform float density;
+uniform float shadowDistance;
+uniform float gradient;
+
+uniform float isGrass;
+uniform vec3 windMove;
+
+const float transitionDistance=10.0;
+
+void main(void){
+    int id = int(positionId.x) * sizeBody[1] * sizeBody[2] + int(positionId.y) * sizeBody[2] + int(positionId.z);
+    vec3 position = posSoftPoint[id];
+    //vec3 position = positionId;
+	tCoords=textureCoords;
+
+	vec4 modelPos=vec4(position,1.0);
+
+	if(isGrass>0.5f && position.y>0){
+	   modelPos.xyz+=windMove;
+	}
+
+	vec4 worldPosition=transformationMatrix*modelPos;
+	worldPosition = vec4(posSoftPoint[id],1);
+	worldPos=worldPosition.xyz;
+	vec4 positionRelativToCamera=viewMatrix*worldPosition;
+	gl_Position =projectionMatrix* positionRelativToCamera;
+	
+	vec3 actualNormal=normal;
+	if(useFakeLightning>0.5){
+		actualNormal=vec3(0.0,1.0,0.0);
+		if(isGrass>0.5f){
+        	  actualNormal+=windMove;
+        	  actualNormal=normalize(actualNormal);
+        }
+	}
+	surfaceNormal=(transformationMatrix*vec4(actualNormal,0.0)).xyz;
+	surfaceNormal=normalize(surfaceNormal);
+	
+	toCameraVector=(invViewMatrix*vec4(0.0,0.0,0.0,1.0)).xyz - worldPosition.xyz;
+	
+	float distance=length(positionRelativToCamera.xyz);
+	visibility=exp(-pow((distance*density),gradient));
+	visibility=clamp(visibility,0.0,1.0);
+
+	for(int i=0;i<5;i++){
+		int id=int(pointInUseVertex[i]);
+		if(i>=0){
+			toPointVector[i]=positionPoint[id] -worldPosition.xyz;
+		}
+	}
+	vec3 vecFrag=normalize(-toCameraVector);
+	reflectedVector=reflect(vecFrag,surfaceNormal);
+	refractedVector=refract(vecFrag,surfaceNormal,1.0/1.33);
+
+	shadowCoords=toShadowMapSpace*worldPosition;
+    distance=distance-(shadowDistance-transitionDistance);
+    distance=distance/transitionDistance;
+    shadowCoords.w=clamp(1.0-distance,0.0,1.0);
+
+}

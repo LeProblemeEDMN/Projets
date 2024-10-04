@@ -1,0 +1,49 @@
+#version 150
+
+in vec2 position;
+
+out vec2 textureCoords;
+out vec4 pos;
+out vec3 sunlight;
+
+uniform float worldTime;
+
+const ivec4 ToD[25] = ivec4[25](ivec4(0,200,134,48), //hour,r,g,b
+								ivec4(1,200,134,48),
+								ivec4(2,200,134,48),
+								ivec4(3,200,134,48),
+								ivec4(4,200,134,48),
+								ivec4(5,200,134,48),
+								ivec4(6,200,134,90),
+								ivec4(7,200,180,110),
+								ivec4(8,200,186,132),
+								ivec4(9,200,195,143),
+								ivec4(10,200,199,154),
+								ivec4(11,200,200,165),
+								ivec4(12,200,200,171),
+								ivec4(13,200,200,165),
+								ivec4(14,200,199,154),
+								ivec4(15,200,195,143),
+								ivec4(16,200,186,132),
+								ivec4(17,200,180,110),
+								ivec4(18,200,153,90),
+								ivec4(19,200,134,48),
+								ivec4(20,200,134,48),
+								ivec4(21,200,134,48),
+								ivec4(22,200,134,48),
+								ivec4(23,200,134,48),
+								ivec4(24,200,134,48));
+
+void main(void){
+
+	gl_Position = vec4(position, 0.0, 1.0);
+	textureCoords = position * 0.5 + 0.5;
+	pos=vec4(textureCoords.x,1-textureCoords.y, 0.0, 1.0);
+	
+	float hour = mod(worldTime/1000.0+6.0,24);
+	
+	ivec4 temp = ToD[int(mod(floor(hour),24))];
+	ivec4 temp2 = ToD[int(mod(floor(hour) + 1,24))];
+	
+	sunlight = mix(vec3(temp.yzw),vec3(temp2.yzw),(hour-float(temp.x))/float(temp2.x-temp.x))/255.0f;
+}

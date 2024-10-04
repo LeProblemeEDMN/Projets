@@ -1,0 +1,51 @@
+#version 150
+
+in vec2 textureCoords;
+
+out vec4 out_Colour;
+
+uniform sampler2D colourTexture;
+
+uniform int height;
+uniform int width;
+uniform int size;
+uniform int halfsize;
+uniform float[36] coeffRed;
+uniform float[36] coeffGreen;
+uniform float[36] coeffBlue;
+
+vec4 getPixColor(int px,int py,int dx,int dy);
+
+void main(void){
+int px=int(textureCoords.x*width);
+int py=int(textureCoords.y*height);
+
+int idPixel=1;
+if(px%2==0 && py%2==0)idPixel=3;
+if(px%2==1 && py%2==1)idPixel=0;
+if(px%2==0 && py%2==1)idPixel=2;
+
+px=px-px%2;
+py=py-py%2;
+vec4 colorTot=vec4(0,0,0,1);
+for(int i=0;i<size;i++){
+    for(int j=0;j<size;j++){
+        int id=size*size*idPixel+i*size+j;
+        vec4 color=getPixColor(px,py,i-halfsize,j-halfsize);
+        colorTot.x+=int(color.x*256)*coeffRed[id];
+        colorTot.y+=int(color.y*256)*coeffGreen[id];
+        colorTot.z+=int(color.z*256)*coeffBlue[id];
+    }
+}
+out_Colour=vec4(colorTot.xyz/256,getPixColor(px,py,0,0).a);
+//out_Colour=getPixColor(px,py,0,0);
+//out_Colour=vec4(textureCoords,0,1);
+//out_Colour=texture(colourTexture,vec2(textureCoords));
+}
+
+vec4 getPixColor(int px,int py,int dx,int dy){
+float y=float(py+2*dy)/(height);
+float x=float(px+2*dx)/(width);
+
+ return texture(colourTexture,vec2(x,y));
+}

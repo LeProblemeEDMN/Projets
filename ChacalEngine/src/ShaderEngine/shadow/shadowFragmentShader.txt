@@ -1,0 +1,24 @@
+#version 330
+
+out vec4 out_colour;
+in vec2 textureCoords;
+
+uniform sampler2D modelTexture;
+uniform float far;
+const float near=0.1;
+float LinearizeDepth(float depth) 
+{
+    float z = depth * 2.0 - 1.0; // back to NDC 
+    	
+    return (2.0 * near * far) / (far + near - z * (far - near));	
+}
+
+void main(void){
+	float alpha =texture(modelTexture,textureCoords).a;
+	if(alpha<0.5){
+		discard;
+	}
+	float d=LinearizeDepth(gl_FragCoord.z)/far;
+	out_colour = vec4(vec3(d),1.0);
+	//out_colour = vec4(1.0,0.0,0.0,1.0);
+}

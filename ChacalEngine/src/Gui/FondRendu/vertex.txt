@@ -1,0 +1,17 @@
+#version 150
+
+in vec2 position;
+
+out vec2 textureCoords;
+
+uniform vec2 translation;
+uniform vec2 size;
+uniform float needInvert;
+void main(void){
+
+	gl_Position = vec4((position*size+translation)*2-1, 0.0, 1.0);
+	textureCoords = position;
+	if(needInvert>0.5){
+	textureCoords = -position;
+	}
+}

@@ -1,0 +1,17 @@
+#version 150
+
+in vec3 in_position;
+in vec2 in_textureCoords;
+
+out vec3 toLightVector;
+out vec2 t;
+uniform mat4 vpMatrix;
+uniform mat4 modelMatrix;
+uniform vec3 lightPos;
+
+void main(void){
+	vec4 w=modelMatrix* vec4(in_position, 1.0);
+	gl_Position = vpMatrix * w;
+	t=in_textureCoords;
+	toLightVector=w.xyz-lightPos;
+}

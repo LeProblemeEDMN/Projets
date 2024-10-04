@@ -1,0 +1,38 @@
+name:Chacal
+height:2000
+width:2000
+fpsCap:6000
+
+//camera config
+far:1000
+near:0.1
+fov:80
+renderDistance:5
+
+fontFNT:res/calibri.fnt
+fontTexture:calibri
+materialResolution:512
+shadowResolution:2048
+//sky & fog
+skyColor:0.6 0.6 0.8
+density:0.004
+gradient:1.5
+
+//postProcess
+flareSpacing:0.4
+flareBrightness:1.6
+exposure:1
+contrast:0.2
+godRayWeight:0.63
+godRayDecay:0.978
+godRayDensity:0.43
+godRayExposures:0.8
+//si pls de l ordi baisser ce paremetre	
+godRayNumberSamples:600
+
+//config
+haveShadow:true
+fastWater:false
+haveNormalMapping:true
+postProcessing:false
+sunFlare:true

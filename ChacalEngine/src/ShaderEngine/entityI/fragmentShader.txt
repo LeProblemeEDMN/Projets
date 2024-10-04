@@ -1,0 +1,134 @@
+#version 330
+
+in vec2 tCoords;
+in vec3 surfaceNormal;
+in vec3 toCameraVector;
+in float visibility;
+in vec3 toPointVector[5];
+in vec3 worldPos;
+
+out vec4 out_Color;
+
+struct Spot {
+	vec3 attenuation;
+	vec3 lookVec;
+	float angle;
+	vec3 color;
+	sampler2D textSpot;
+	float far;
+};
+
+uniform Spot[10] spots;
+
+struct PointLight {
+	vec3 attenuation;
+	vec3 color;
+	float far;
+};
+
+uniform PointLight[10] points;
+uniform sampler2D modelTexture;
+uniform samplerCube environmentMap;
+uniform float reflectivity;
+uniform float shineDamper;
+uniform samplerCube[10] textCubes;
+uniform vec3 skyColor;
+uniform vec2 materialValue;
+
+uniform vec3[10] positionSpot;
+uniform mat4[10] spotMatrix;
+uniform float[5] spotInUse;
+uniform float[5] pointInUse;
+
+const float near=0.1;
+float LinearizeDepth(float depth,float far) 
+{
+    float z = depth * 2.0 - 1.0; // back to NDC 
+    	
+    return (2.0 * near * far) / (far + near - z * (far - near));	
+}
+
+void main(void){
+	
+	vec3 unitNormal=surfaceNormal;
+	vec3 unitCameraVector=normalize(toCameraVector);
+	
+	vec3 totalDiffuse= vec3(0.0);
+	vec3 totalSpecular= vec3(0.0);
+	
+	vec4 textureColour=texture(modelTexture,tCoords);
+	if(textureColour.a<0.5){
+		discard;
+	}
+	//-----------SPOTS------------------------------------------------
+for(int id=0;id<5;id++){
+ int i=int(spotInUse[id]);
+	if(i>=0){
+	vec3 dirVec=spots[i].lookVec;
+	vec3 toLightVector=positionSpot[i] -worldPos;
+    vec3 unitLightVector=normalize(toLightVector);
+    float ac=acos(dot(-unitLightVector,dirVec));
+    if(ac< spots[i].angle){
+    float shadowFactor=1;
+
+	vec4 s=spotMatrix[i]*vec4(worldPos,1);
+	s.xyz/=s.w;
+	s.xyz*=0.5;
+    s.xyz+=0.5;
+    float tz=texture(spots[i].textSpot,s.xy).r;
+    float z=LinearizeDepth(s.z,spots[i].far)/spots[i].far;
+    
+    if((z-tz)>0.005){
+     shadowFactor=0.35;
+    }
+    
+	float distance=length(toLightVector);
+	float attenuationFactor=spots[i].attenuation.x+(spots[i].attenuation.y*distance)+(spots[i].attenuation.z*distance*distance);
+	
+	float nDot1=dot(unitNormal,unitLightVector);
+	float brightness=max(nDot1,0.0);	
+	vec3 lightDirection=-unitLightVector;
+	vec3 reflectedLightDirection=reflect(lightDirection,unitNormal);
+	
+	float specularFactor=dot(reflectedLightDirection,unitCameraVector);
+	specularFactor=max(specularFactor,0.0);
+	float dampedFactor=pow(specularFactor,shineDamper);
+	totalDiffuse=totalDiffuse+(brightness*spots[i].color)/(attenuationFactor/shadowFactor);
+	totalSpecular=totalSpecular+(dampedFactor*reflectivity*spots[i].color)/(attenuationFactor/shadowFactor);
+	}}
+	}
+	//-----------POINTS --------------------------------------
+	for(int id=0;id<5;id++){
+ 	int i=int(pointInUse[id]);
+	if(i>=0){
+    vec3 unitLightVector=normalize(toPointVector[i]);
+    
+    float shadowFactor=1;
+    float distance=length(toPointVector[i]);
+	float z=(distance-0.1)/points[i].far;
+	float tz=texture(textCubes[i],normalize(-toPointVector[i])).r;
+	float v=z-tz;
+	if(v>0.005){
+   		shadowFactor=0.35;
+      }
+	float attenuationFactor=points[i].attenuation.x+(points[i].attenuation.y*distance)+(points[i].attenuation.z*distance*distance);
+	
+	float nDot1=dot(unitNormal,unitLightVector);
+	float brightness=max(nDot1,0.0);	
+	vec3 lightDirection=-unitLightVector;
+	vec3 reflectedLightDirection=reflect(lightDirection,unitNormal);
+	
+	float specularFactor=dot(reflectedLightDirection,unitCameraVector);
+	specularFactor=max(specularFactor,0.0);
+	float dampedFactor=pow(specularFactor,shineDamper);
+	totalDiffuse=totalDiffuse+(brightness*points[i].color)/(attenuationFactor/shadowFactor);
+	totalSpecular=totalSpecular+(dampedFactor*reflectivity*points[i].color)/(attenuationFactor/shadowFactor);
+	}
+	}
+	//---------------------FIN LUMIERES-----------------------------------
+	totalDiffuse=max(totalDiffuse,0.2);	
+	
+	out_Color =vec4(totalDiffuse,0.0)*textureColour+vec4(totalSpecular,1.0);
+	out_Color =mix(vec4(skyColor,1.0),out_Color,visibility);
+
+}

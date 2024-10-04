@@ -1,0 +1,3 @@
+bord:4
+partSize:12
+scalingFactor:2

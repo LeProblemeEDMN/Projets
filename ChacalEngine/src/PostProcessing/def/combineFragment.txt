@@ -1,0 +1,410 @@
+#version 330
+
+in vec2 textureCoords;
+in vec4 pos;
+in vec3 sunlight;
+
+out vec4 out_Colour;
+
+uniform sampler2D colourTexture;
+uniform sampler2D normalTexture;
+uniform sampler2D posTexture;
+uniform sampler2D autre;
+uniform sampler2D shadowMap;
+
+struct Spot {
+	vec3 attenuation;
+	vec3 lookVec;
+	float angle;
+	vec3 color;
+	sampler2D textSpot;
+	float far;
+};
+
+uniform Spot[10] spots;
+
+struct PointLight {
+	vec3 attenuation;
+	vec3 color;
+	float far;
+};
+
+uniform PointLight[10] points;
+uniform samplerCube[10] textCubes;
+uniform vec3[10] positionSpot;
+uniform vec3[10] positionPoint;
+uniform mat4[10] spotMatrix;
+uniform float[5] spotInUse;
+uniform float[5] pointInUse;
+
+uniform vec3 camera;
+uniform vec3 skyColor;
+uniform mat4 viewMatrix;
+uniform mat4 projMatrix;
+uniform float useLightScattering;
+uniform vec2 sunPos;
+uniform vec2 screenSize;
+
+uniform float densityFog=0.004;
+uniform float gradient =1.5;
+
+uniform float exposure=0.0034;
+uniform float decay=1.0;
+uniform float density=0.8;
+uniform float weight=5.65;
+uniform int NUM_SAMPLES = 100;
+
+uniform vec2 mapSize;
+uniform float shadowDistance;
+const float transitionDistance=10.0;
+
+const int pcfCount=3;
+const float totalTexels=(pcfCount*2.0+1.0)*(pcfCount*2.0+1.0);
+const float waveStrength=0.04;
+const float waterHeght=62.5;
+
+const float far=1000;
+   
+const float murkyDepth = 12;
+const float minBlueness = 0.4;
+const float maxBlueness = 0.95;
+
+float getnoise(vec2 pos);
+float montantGodRays(vec2 newtc);
+float sunVisibility(vec2 texcoord);
+float cdist(vec2 coord);
+float gen_circular_lens(vec2 center, float size);
+float distratio(vec2 pos, vec2 pos2);
+vec3 applyMurkiness(vec3 refractColour, float waterDepth,vec3 waterColour);
+vec3 applyFog(vec3 rgb,float fogAmount,vec3 rayDir, vec3 sunDir);
+vec3 getWorldPos(vec2 p);
+vec3 gr2(vec2 texcoord);
+vec3 lens(vec2 newTC);
+
+const float near=0.1;
+float LinearizeDepth(float depth,float far)
+{
+    float z = depth * 2.0 - 1.0; // back to NDC
+
+    return (2.0 * near * far) / (far + near - z * (far - near));
+}
+
+//-----------------------------------------------------------
+//------MAIN---------------------------------------------
+//-----------------------------------------------------------
+void main(void){
+    vec2 p;
+    p.x=gl_FragCoord.x/screenSize.x;
+	p.y=gl_FragCoord.y/screenSize.y;
+	vec2 pBase=textureCoords;
+    p=textureCoords;
+	// DEFFERED --------------------------------------
+	if(texture(posTexture,p.xy).a>0.3){
+		vec3 FragPos =getWorldPos(p);
+		float dist = length(FragPos.xyz-camera);
+		float lightFactor =1;
+	
+	float shineDamper = texture(colourTexture, p).a*64;
+	float reflectivity = texture(normalTexture, p).a*3;
+
+	vec3 normSansMat=vec3(0,0,-1);
+	
+	float idF=texture(normalTexture, p).a;
+	idF-=0.4;
+	idF*=10;
+	int id=0;
+
+    vec3 Normal= texture(normalTexture, p).rgb*2-1;
+    
+	vec3 viewDir = normalize(camera- FragPos.xyz);
+	vec3 totalDiffuse = vec3(0.0);
+	vec3 totalSpecular = vec3(0.0);
+	vec3 unitVectorToCamera=normalize(viewDir);
+	vec3 unitNormal=normalize(Normal);
+	
+	//-----------SPOTS------------------------------------------------
+    for(int id=0;id<5;id++){
+     int i=int(spotInUse[id]);
+    	if(i>=0){
+    	vec3 dirVec=spots[i].lookVec;
+    	vec3 toLightVector=positionSpot[i] -FragPos;
+        vec3 unitLightVector=normalize(toLightVector);
+        float ac=acos(dot(-unitLightVector,normalize(dirVec)));
+        if(ac< spots[i].angle){
+        float shadowFactor=1;
+
+    	vec4 s=spotMatrix[i]*vec4(FragPos,1);
+    	s.xyz/=s.w;
+    	s.xyz*=0.5;
+        s.xyz+=0.5;
+        float tz=texture(spots[i].textSpot,s.xy).r;
+        float z=LinearizeDepth(s.z,spots[i].far)/spots[i].far;
+
+        if((z-tz)>0.005){
+         shadowFactor=0.7;
+        }
+
+    	float distance=length(toLightVector);
+    	float attenuationFactor=spots[i].attenuation.x+(spots[i].attenuation.y*distance)+(spots[i].attenuation.z*distance*distance);
+
+    	float nDot1=dot(unitNormal,unitLightVector);
+    	float brightness=max(nDot1,0.2);
+    	vec3 lightDirection=-unitVectorToCamera;
+    	vec3 reflectedLightDirection=reflect(lightDirection,unitNormal);
+
+    	float specularFactor=dot(reflectedLightDirection,unitVectorToCamera);
+    	specularFactor=max(specularFactor,0.0);
+    	float dampedFactor=pow(specularFactor,shineDamper);
+    	totalDiffuse=totalDiffuse+(brightness*spots[i].color)/(attenuationFactor/shadowFactor);
+    	totalSpecular=totalSpecular+(dampedFactor*reflectivity*spots[i].color)/(attenuationFactor/shadowFactor);
+
+    	}}
+    	}
+
+    	//-----------POINTS --------------------------------------
+    	for(int id=0;id<5;id++){
+     	int i=int(pointInUse[id]);
+    	if(i>=0){
+    	 vec3 toPointVector=positionPoint[i] -FragPos.xyz;
+        vec3 unitLightVector=normalize(toPointVector);
+
+        float shadowFactor=1;
+
+        float distance=length(toPointVector);
+    	float z=(distance-0.1)/points[i].far;
+    	float tz=texture(textCubes[i],normalize(-toPointVector)).r;
+    	float v=z-tz;
+    	if(v>0.005){
+       		shadowFactor=0.7;
+          }
+    	float attenuationFactor=points[i].attenuation.x+(points[i].attenuation.y*distance)+(points[i].attenuation.z*distance*distance);
+
+    	float nDot1=dot(unitNormal,unitLightVector);
+    	float brightness=max(nDot1,0.2);
+    	vec3 lightDirection=-unitLightVector;
+    	vec3 reflectedLightDirection=reflect(lightDirection,unitNormal);
+
+    	float specularFactor=dot(reflectedLightDirection,unitVectorToCamera);
+    	specularFactor=max(specularFactor,0.0);
+    	float dampedFactor=pow(specularFactor,shineDamper);
+//   vec3 halfwayDir = normalize(unitLightVector + viewDir);
+//   dampedFactor = pow(max(dot(Normal, halfwayDir), 0.0), shineDamper);
+
+    	totalDiffuse=totalDiffuse+(brightness*points[i].color)/(attenuationFactor/shadowFactor);
+    	totalSpecular=totalSpecular+(dampedFactor*points[i].color);
+    	}
+    	}
+    	//---------------------FIN LUMIERES-----------------------------------
+    //	totalDiffuse=max(totalDiffuse,0.2);
+    
+	float visibility=exp(-pow((dist*densityFog),gradient));
+	visibility=clamp(visibility,0.0,1.0);
+	
+  	vec4 colourT=texture(colourTexture, p);
+	
+    out_Colour =  vec4(totalDiffuse,0.0) * colourT+ vec4(totalSpecular,1.0);
+
+    vec4 autreColor=texture(autre, p);
+    if(autreColor.a>0){
+        float maxi=max(out_Colour.r,max(out_Colour.g,out_Colour.b));
+      if(maxi>1)  out_Colour.rgb/=maxi;
+     out_Colour.rgb=mix(out_Colour.rgb,autreColor.rgb,autreColor.a*1.2);
+    }
+
+	vec3 s=normalize(positionPoint[0] - FragPos.xyz);
+	out_Colour.rgb =applyFog(out_Colour.rgb,1-visibility,unitVectorToCamera,s);
+	out_Colour.a=1;
+	//out_Colour.rgb=FragPos/50;
+    }else{
+    // CIEL -----------------------------------------
+    	out_Colour =texture(colourTexture, textureCoords);
+	    out_Colour.a=0.5;
+    }
+    
+	if(useLightScattering>0.5){
+ 		out_Colour.xyz += gr2(p);
+  		out_Colour.xyz += lens(p);
+	}
+	//saturation
+	out_Colour.rgb=(out_Colour.rgb-0.5)*(1.3)+0.5;
+//	float gamma = 2.2;
+	//out_Colour.rgb = vec3(1.0) - exp(-out_Colour.rgb * 0.1);
+	// out_Colour.rgb = out_Colour.rgb / (out_Colour.rgb + vec3(1.0));
+     // gamma correction
+
+   // out_Colour.rgb = pow(out_Colour.rgb, vec3(1/gamma));
+}
+//-----------------------------------------------------------
+//------FIN MAIN---------------------------------------------
+//-----------------------------------------------------------
+
+// Applique la couleur de l'eau
+vec3 applyMurkiness(vec3 refractColour, float waterDepth,vec3 waterColour){
+	float murkyFactor = clamp(waterDepth / murkyDepth, 0.0, 1.0);
+	float murkiness = minBlueness + murkyFactor * (maxBlueness - minBlueness);
+	return mix(refractColour, waterColour, murkiness);
+}
+
+// Applique la couleur de la brume
+vec3 applyFog(vec3 rgb,float fogAmount,vec3 rayDir, vec3 sunDir){
+    float sunAmount = max( dot( rayDir, sunDir ), 0.0 );
+    vec3  fogColor  = mix( skyColor,points[0].color,pow(sunAmount,5.0) );
+    return mix( rgb, fogColor, fogAmount );
+}
+
+//Recup�re les coordon�es
+vec3 getWorldPos(vec2 p){
+	  vec3 FragPos=texture(posTexture,p.xy).rgb*512;
+	  FragPos.xyz-=256;
+
+	  FragPos.xyz+=camera.xyz;
+	 // FragPos.z+=camera.z;
+	  return FragPos;
+}
+
+//noise generator
+float getnoise(vec2 pos) {
+	return abs(fract(sin(dot(pos ,vec2(18.9898f,28.633f))) * 4378.5453f));
+}
+
+//godRays ------------------------------------------------
+vec3 gr2(vec2 texcoord){
+	float pw = 1.0/ screenSize.x;
+	float ph = 1.0/ screenSize.y;
+	float gr = 0.0;	
+	vec3 lightColor = sunlight*sunVisibility(vec2(pw,ph));//mix(vec4(0.9,0.8,0.25,1.0)*sunVisibility,4*moonlight*moonVisibility*rainc,(truepos+1.0)/2.);
+	/*--------------------------------*/
+	const int nSteps = 7;
+	const float blurScale = 0.002/nSteps*9.0;
+	const int center = (nSteps-1)/2;
+	vec3 blur = vec3(0.0);
+	float tw = 0.0;
+	const float sigma = 0.5;
+	/*--------------------------------*/
+	vec2 deltaTextCoord = normalize(texcoord.st - sunPos.xy)*blurScale;
+	vec2 textCoord = texcoord.st - deltaTextCoord*center;
+	float aspectRatio=screenSize.x/screenSize.y;
+	float distx = texcoord.x*aspectRatio-sunPos.x*aspectRatio;
+	float disty = texcoord.y-sunPos.y;
+	float illuminationDecay = pow(max(1.0-sqrt(distx*distx+disty*disty),0.0),4.0);
+	/*--------------------------------*/
+		for(int i=0; i < nSteps ; i++) {
+			textCoord += deltaTextCoord;
+				
+			float dist = (i-float(center))/center;
+			float weight = exp(-(dist*dist)/(2.0*sigma));
+				
+			float sample = montantGodRays( textCoord)*weight;
+			tw += weight;
+			gr += sample;	
+	}
+	vec3 grC = lightColor*3*(gr/tw)*illuminationDecay;
+	return grC;
+}
+//Pre-rendu du godRays
+float montantGodRays(vec2 newtc){
+	float gr = 0.0;
+	vec2 deltaTextCoord = vec2( newtc.st - sunPos.xy );
+	vec2 textCoord = newtc.st;
+	deltaTextCoord *= 1.0 /  float(7) * 0.8;
+	float avgdecay = 0.0;
+	float aspectRatio=screenSize.x/screenSize.y;
+	float distx = abs(newtc.x*aspectRatio-sunPos.x*aspectRatio);
+	float disty = abs(newtc.y-sunPos.y);
+	float fallof = 1.0;
+	float noise = getnoise(textCoord);
+		
+	for(int i=0; i < 7 ; i++) {			
+		textCoord -= deltaTextCoord;
+		fallof *= 0.7;
+		float sample;
+		//0.1 car 0.3 si entit� doivent etre tranparente
+		if(texture(normalTexture,textCoord).a>0.1){
+		sample =  0;
+		}else{
+			sample =  1;
+			}
+	
+		gr += sample*fallof;
+		}
+	return gr/7;
+}
+//-------------------------------------------------------
+
+//distance au centre de l'ecran
+float cdist(vec2 coord) {
+	return max(abs(coord.s-0.5),abs(coord.t-0.5))*2.0;
+}
+
+//cr�e une lens
+float gen_circular_lens(vec2 center, float size,vec2 texcoord) {
+	float dist=distratio(center,texcoord.xy)/size;
+	return exp(-dist*dist);
+}
+
+float distratio(vec2 pos, vec2 pos2) {
+	float aspectRatio=screenSize.x/screenSize.y;
+	float xvect = pos.x*aspectRatio-pos2.x*aspectRatio;
+	float yvect = pos.y-pos2.y;
+	return sqrt(xvect*xvect + yvect*yvect);
+}
+
+//LENS FLARE ---------------------------------------------------
+vec3 lens(vec2 newTC){
+	float pw = 1.0/ screenSize.x;
+	float ph = 1.0/ screenSize.y;
+	float xdist = abs(sunPos.x-newTC.x);
+	float ydist = abs(sunPos.y-newTC.y);
+	/*--------------------------------*/
+	float sunvisibility =sunVisibility(vec2(pw,ph));// texture2D(composite,vec2(pw,ph)).a*(1-rainStrength*0.9);
+	float centerdist = clamp(1.0 - pow(cdist(sunPos), 0.2), 0.0, 1.0);
+	/*--------------------------------*/
+	vec3 light_color = sunlight*sunvisibility;// mix(sunlight*sunVisibility,3*moonlight*moonVisibility,(truepos+1.0)/2.);
+	/*--------------------------------*/
+		if (sunvisibility > 0.05) {
+			vec3 lensColor = exp(-ydist*ydist/0.003/(1.5-centerdist))*exp(-xdist*xdist/0.05/(1.5-centerdist))* vec3(0.1,0.3,1.0);
+			/*--------------------------------*/
+			vec2 LC = vec2(0.5)-sunPos;
+			/*--------------------------------*/
+			vec2 pos1 = sunPos + LC * 0.7;
+			lensColor += vec3(1.0,0.3,.1)*gen_circular_lens(vec2(pos1),0.03*(1.5-centerdist),newTC)*0.58;
+			/*--------------------------------*/
+			pos1 = sunPos + LC * 0.9;
+			lensColor += vec3(0.8,0.6,.1)*gen_circular_lens(vec2(pos1),0.06*(1.5-centerdist),newTC)*0.375;
+			/*--------------------------------*/
+			pos1 = sunPos + LC * 1.3;
+			lensColor += vec3(0.1,1.0,.3)*gen_circular_lens(vec2(pos1),0.12*(1.5-centerdist),newTC)*0.28;
+			/*--------------------------------*/
+			pos1 = sunPos + LC * 2.1;
+			lensColor += vec3(0.1,0.6,.8)*gen_circular_lens(vec2(pos1),0.24*(1.5-centerdist),newTC)*0.21;
+			/*--------------------------------*/
+		float	LENS_STRENGTH =7.5;
+			lensColor = lensColor*pow(sunvisibility,2.2)*light_color*LENS_STRENGTH*centerdist;
+			return lensColor;
+		}
+		return vec3(0);
+}
+
+//regarde si le soleil est visible
+float sunVisibility(vec2 texcoord){
+float visiblesun = 0.0;
+	float temp;
+	float nb = 0;
+	float pw = 1.0/ screenSize.x;
+float ph = 1.0/ screenSize.y;
+//calculate sun occlusion (only on one pixel) 
+if (texcoord.x < 3.0*pw && texcoord.x < 3.0*ph) {
+	for (int i = 0; i < 10;i++) {
+		for (int j = 0; j < 10 ;j++) {
+		temp = texture2D(normalTexture,sunPos + vec2(pw*(i-5.0)*10.0,ph*(j-5.0)*10.0)).a;
+		//0.1 car 0.3 si entit� doivent etre tranparente
+		visiblesun +=  1.0-float(temp>0.1) ;
+		nb += 1;
+		}
+	}
+	visiblesun /= nb;
+
+}
+return visiblesun;
+}
+//---------------------------------------------------

@@ -1,0 +1,34 @@
+#version 400
+
+in vec3 textureCoords;
+in vec3 toLightVector;
+layout(location=0) out vec4 out_Color;
+
+
+uniform samplerCube cubeMap;
+uniform vec3 fogColor;
+uniform float blendFactor;
+uniform vec3 lightColor;
+
+const float lower_limit=-30.0;
+const float upper_limit=40.0;
+
+vec3 applyFog( in vec3  rgb,      // original color of the pixel
+               in float fogAmount, // camera to point distance
+               in vec3  rayDir,   // camera to point vector
+               in vec3  sunDir )  // sun light direction
+{
+    //float sunAmount = max( dot( rayDir, sunDir ), 0.0 );
+   // sunAmount =1;
+    vec3  fog  =fogColor;// mix( fogColor, // bluishlightColor, // yellowishpow(sunAmount,5.0) );
+
+    return mix( rgb, fog, fogAmount );
+}
+void main(void){
+    out_Color =vec4(0.15,0.4,0.7,1); //texture(cubeMap, textureCoords);
+    float factor=(textureCoords.y-lower_limit)/(upper_limit-lower_limit);
+	factor=clamp(factor,0,1);
+
+	out_Color.rgb =applyFog(out_Color.rgb,1-factor,normalize(textureCoords),normalize(toLightVector));
+	out_Color.a=1;
+}

@@ -1,0 +1,341 @@
+#version 150
+
+in vec2 textureCoords;
+
+out vec4 out_Colour;
+
+struct Spot {
+	vec3 attenuation;
+	vec3 lookVec;
+	float angle;
+	vec3 color;
+	sampler2D textSpot;
+	float far;
+};
+
+uniform Spot[10] spots;
+
+struct PointLight {
+	vec3 attenuation;
+	vec3 color;
+	float far;
+};
+
+uniform PointLight[10] points;
+uniform sampler2D sunTexture;
+uniform sampler2D depthTexture;
+uniform sampler3D cloudTexture;
+uniform sampler3D detailTexture;
+uniform samplerCube[10] textCubes;
+uniform float nbL;
+uniform vec4 move;
+uniform vec4 moveDetail;
+
+uniform vec3[10] positionSpot;
+uniform vec3[10] positionPoint;
+uniform mat4[10] spotMatrix;
+uniform float[5] spotInUse;
+uniform float[5] pointInUse;
+
+const float farp=1000;
+const float near=0.1;
+
+uniform float exposures;
+uniform vec2 sunPos;
+uniform float density;
+uniform float fogdensity;
+uniform float gradient;
+uniform float weight;
+uniform float decay;
+uniform int NUM_SAMPLES;
+uniform float rayon;
+
+uniform vec2 mapSize;
+
+uniform vec3 camera;
+uniform mat4 invProjectionMatrix;
+uniform mat4 invViewMatrix;
+
+uniform float shadowDistance;
+const float transitionDistance=10.0;
+uniform mat4 toShadowMapSpace;
+const float maxHeight=80;
+const float maxDepth=0.1;
+const float aspectRatio = 720.0/480.0;
+float sunShadow(vec3 wp);
+vec3 totalSunShadow(vec3 wp,vec3 endPos,vec3 color);
+float sampleDensity(vec3 samplePos);
+float remap(float input, float inputMin, float inputMax, float min, float max);
+float saturate(float x);
+float LinearizeDepth(float depth,float far)
+{
+    float z = depth * 2.0 - 1.0; // back to NDC 
+    	
+    return (2.0 * near * far) / (far + near - z * (far - near));	
+}
+const float epaisseur=300000;
+const float scale=155000;
+const float h=100000;
+const vec3 normalizedShapeWeights=normalize(vec3(1,0.6,0.8));
+const vec3 normalizedDetailWeights=normalize(vec3(2,0.7,1));
+void main(void){
+    float realDistance=LinearizeDepth(texture(depthTexture,textureCoords).r,farp)/farp;
+    float depth=clamp(realDistance,0,maxDepth);
+
+
+    vec4 viewSpacePos=invProjectionMatrix*vec4(textureCoords*2-vec2(1,1),-1,1);
+    viewSpacePos.z=-1;
+    viewSpacePos.w=0;
+    vec4 camVec=normalize(invViewMatrix*viewSpacePos);
+    vec3 camPos=camera;
+
+    if(camera.y<maxHeight && (camera.y+camVec.y*depth*(farp-near))>maxHeight){
+        float dy=maxHeight-camera.y;
+        depth=dy/(camVec.y*(farp-near));
+    }else if(camera.y>=maxHeight){
+        float dy=maxHeight-camera.y;
+        dy=dy/(camVec.y*(farp-near));
+        camPos=camera.xyz+dy*(farp-near)*camVec.xyz;
+        depth-=dy;
+        if(camVec.y>=0)depth=-1;
+    }
+
+    if(depth>=0 && false){
+    vec3 fogColor=vec3(0,0,0);
+
+    int nb_samples=15+int((NUM_SAMPLES-15)*sqrt(depth/maxDepth));
+
+    for(int i=1;i<=nb_samples;i++){
+        vec3 wp=camPos+camVec.xyz*depth*(farp-near)*float(i)/nb_samples;
+
+        for(int id=0;id<5;id++){
+         int i=int(spotInUse[id]);
+        	if(i>=0){
+        	vec3 dirVec=spots[i].lookVec;
+        	vec3 toLightVector=positionSpot[i] -wp;
+            vec3 unitLightVector=normalize(toLightVector);
+            float ac=acos(dot(-unitLightVector,dirVec));
+            if(ac< spots[i].angle){
+            float shadowFactor=1;
+
+        	vec4 s=spotMatrix[i]*vec4(wp,1);
+        	s.xyz/=s.w;
+        	s.xyz*=0.5;
+            s.xyz+=0.5;
+            float tz=texture(spots[i].textSpot,s.xy).r;
+            float z=LinearizeDepth(s.z,spots[i].far)/spots[i].far;
+
+            if((z-tz)>0.005){
+             shadowFactor=0.0;
+            }
+            fogColor+=shadowFactor*spots[i].color/NUM_SAMPLES;
+        	}}
+        	}
+
+        //-----------POINTS --------------------------------------
+        	for(int id=0;id<5;id++){
+         	int i=int(pointInUse[id]);
+        	if(i>=0){
+        	vec3 toPointVector=positionPoint[i]-wp;
+        	float distance=length(toPointVector)*2;
+            vec3 unitLightVector=normalize(toPointVector);
+
+            float shadowFactor=1;
+        	float z=(distance-0.1)/points[i].far;
+        	float tz=texture(textCubes[i],normalize(-toPointVector)).r;
+        	float v=z-tz;
+        	if(v>0.005){
+           		shadowFactor=0.0;
+              }
+            if(i==0)shadowFactor=1-sunShadow(wp);
+
+        	float attenuationFactor=points[i].attenuation.x+(points[i].attenuation.y*distance)+(points[i].attenuation.z*distance*distance);
+        	 fogColor+=shadowFactor*points[i].color/NUM_SAMPLES/attenuationFactor;
+        	}
+        	}
+    }
+     float distance=depth*farp;
+     float visibility=exp(-pow((distance*fogdensity),gradient));
+     visibility=clamp(visibility,0.0,1.0);
+    out_Colour=vec4(fogColor,1-visibility);
+    }else{
+     out_Colour=vec4(0,0,0,0);
+    }
+
+
+    float skyDist=(h-camPos.y)/camVec.y;
+
+    float dMax=1100000;
+    float dInter=90000;
+    float dMin=50000;
+    if(skyDist>0 && realDistance>0.9999 && skyDist<dMax){
+
+            float skyDistEnd=epaisseur/camVec.y;
+            float skyDistSimple=1/camVec.y;
+         int nb_samples=20;
+
+         vec3 pos=camPos+camVec.xyz*skyDist;
+         float distance=0;
+         vec3 fogColor=vec3(1,0.99,0.9)*0.7+points[0].color*0.3;
+         vec3 cloudColor=vec3(0,0,0);
+         if(skyDist>dMin){
+                nb_samples=3+int(37*(1-(skyDist-dMin)/(dMax-dMin)));
+         }
+         float transmittance=1;
+         //float transmitMultiplier=exp(-pow((skyDistEnd/nb_samples*0.001),gradient));
+         int nb=0;
+         for(int i=1;i<=nb_samples;i++){
+            vec3 wp=camVec.xyz*(skyDist+skyDistEnd*float(i)/nb_samples);
+            float ux=(wp.x+move.x)/scale;
+            float uz=(wp.z+move.y)/scale;
+            float uy=float(i)/nb_samples;
+            float cloudDensity=sampleDensity(wp);//*0.6+sampleDensity(vec3(-camVec.z,camVec.y,97365+camVec.x))*0.3+0.1*sampleDensity(vec3(-5*camVec.z+camVec.x,camVec.y,872+1.5*camVec.x));//max(0,texture(cloudTexture,vec3(ux,uy,uz)).r-0.2);
+            if(cloudDensity>0){
+                 float visibility_point=1;
+                distance+=cloudDensity/nb_samples;
+
+                    vec3 to_light_vec=normalize(positionPoint[0]-wp);
+                    float dy=(h+epaisseur)-wp.y;
+                    float dist=dy/to_light_vec.y;
+
+                    float densite2=0;
+                    for(int i=0;i<1+int(nb_samples);i++){
+                        vec3 wp2=wp+to_light_vec*dist*float(i)/nb_samples;
+                        //wp2.x-=800000;
+                        densite2+=sampleDensity(wp2)/4;
+                    }
+                    visibility_point=exp(-pow((densite2*0.15),1.8));
+                    float darkTreshhold=0.15;
+                    visibility_point=clamp(darkTreshhold+(1-darkTreshhold)*visibility_point,0.0,1.0);
+
+                cloudColor+=fogColor*pow(cloudDensity,1/2)*transmittance*visibility_point;
+                nb++;
+                transmittance=exp(-distance*0.3);
+
+            }
+         }
+
+         float visibility=exp(-pow((distance*0.28*8),gradient*4));
+
+         if(skyDist>dInter){
+            float coeffTrans=1-(skyDist-dInter)/(dMax-dInter);
+            cloudColor*=coeffTrans;
+            visibility=1-(1-visibility)*coeffTrans;
+         }
+
+         visibility=clamp(visibility,0.0,1.0);
+         out_Colour=vec4(cloudColor/nb,1-visibility);
+    }
+}
+
+float sampleDensity(vec3 samplePos){
+    float ux=(samplePos.x+move.x)/scale;
+    float uz=(samplePos.z+move.y)/scale;
+    float uy=(samplePos.y-h)/epaisseur;
+
+    float heightGradient=saturate(remap(uy,0,0.2,0,1))*saturate(remap(uy,1,0.7,0,1));
+    vec3 shapeNoise=texture(cloudTexture,vec3(ux,uy,uz)).rgb;
+
+    float shapeBFM=dot(shapeNoise,normalizedShapeWeights)*heightGradient;
+    float baseShapeDensity=(shapeBFM-0.4)/0.6;
+
+    float seuil=100000;
+
+    if(baseShapeDensity>0 && abs(samplePos.x)<seuil && abs(samplePos.z)<seuil){
+    ux=mod((samplePos.x+moveDetail.x)/scale*3*moveDetail.w,1);
+         uz=mod((samplePos.z+moveDetail.z)/scale*3*moveDetail.w,1);
+         uy=mod((samplePos.y+moveDetail.y-h)/epaisseur*2*moveDetail.w,1);
+        vec3 detailsPos=vec3(uz,uy,ux);//*moveDetail.w+moveDetail.xyz;
+        vec3 detailNoise=texture(detailTexture,detailsPos).rgb;
+        //vec3 detailNoise=vec3(0);
+
+        float detailFBM=max(0,dot(detailNoise,normalizedDetailWeights));
+
+        float detailEroded=pow((1-shapeBFM),3);
+
+       return max(0,baseShapeDensity-(1-detailFBM)*detailEroded*3.1);
+    }
+
+    return max(0,baseShapeDensity);
+}
+
+float saturate(float x)
+{
+  return max(0, min(1, x));
+}
+float remap(float value, float inMin, float inMax, float outMin, float outMax)
+{
+	//return min + (input - inputMin) * (max - min) / (inputMax - inputMin);
+	float mappedValue = value;
+
+    	if ( ( inMax - inMin ) == 0.0f )
+    	{
+    		mappedValue = ( outMax + outMin ) * 0.5f;
+    	}
+    	else
+    	{
+    		mappedValue = outMin + ( ( ( mappedValue - inMin ) / ( inMax - inMin ) ) * ( outMax - outMin ) );
+    	}
+    return mappedValue;
+}
+float sunShadow(vec3 wp){
+    vec4 shadowCoords=toShadowMapSpace*vec4(wp,1);
+
+	float total=0.0;
+	float objectNearestLight=texture(sunTexture,shadowCoords.xy).r;
+	if(shadowCoords.z-0.005>objectNearestLight){
+		total=1;
+	}
+	return total;
+	// return 1.0-(total*shadowCoords.w)*3.0;
+}
+
+vec3 totalSunShadow(vec3 wp,vec3 endPos,vec3 color){
+    vec4 A=toShadowMapSpace*vec4(wp,1);
+    vec4 B=toShadowMapSpace*vec4(endPos,1);
+    if(A.z>B.z){
+        vec4 C=A;
+        A=B;
+        B=C;
+    }
+
+    float total=0.0;
+    float totalD=length(vec2(B.x-A.x,B.y-A.y));
+    vec3 dir=normalize(vec3(B.x-A.x,B.y-A.y,B.z-A.z));
+
+    float dx=(dir.x/abs(dir.x))/mapSize.x;
+    float dy=(dir.y/abs(dir.y))/mapSize.y;
+
+    float x=floor(A.x*mapSize.x)/mapSize.x;
+    if(dx>0)x+=dx;
+    float y=floor(A.y*mapSize.y)/mapSize.y;
+    if(dy>0)y+=dy;
+
+    float lastT=0;
+    vec3 C=A.xyz;
+    int i=0;
+    while(lastT/totalD<0.5 || i<100){
+
+        float t0=(x-C.x)/dir.x;
+        float t1=(y-C.y)/dir.y;
+
+        vec3 D;
+        if(t0<t1){
+            D=C.xyz+dir*t0;
+            x+=dx;
+        }else{
+            y+=dy;
+            t0=t1;
+            D=C.xyz+dir*t0;
+        }
+
+        if(t0>totalD)t0=totalD;
+        float l=t0;
+       // if(D.z>texture(sunTexture,C.xy+/2*dir.xy).r)total+=l;
+        total+=(1-clamp((D.z-texture(sunTexture,D.xy).r)/(D.z-C.z),0.0,1.0))*l;
+        C=D;
+        lastT+=t0;
+        i+=1;
+    }
+    return vec3(float(i)/100,total/totalD,lastT/totalD);
+}

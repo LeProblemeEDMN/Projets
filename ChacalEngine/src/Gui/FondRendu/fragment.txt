@@ -1,0 +1,16 @@
+#version 150
+
+in vec2 textureCoords;
+
+out vec4 out_Colour;
+
+uniform sampler2D colourTexture;
+
+uniform vec3 color;
+uniform float haveImage;
+void main(void){
+
+out_Colour=mix(texture(colourTexture,textureCoords),vec4(color,1.0),haveImage);
+//out_Colour=texture(colourTexture,textureCoords);
+
+}

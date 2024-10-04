@@ -1,0 +1,61 @@
+#version 150
+
+in vec2 textureCoords;
+
+out vec4 out_Colour;
+
+uniform sampler2D depthTexture;
+uniform sampler2D cloudTexture;
+uniform vec2 sunPos;
+uniform float rayon;
+uniform vec3 color;
+const float far=1000;
+const float near=0.1;
+
+uniform float exposures;
+uniform float density;
+uniform float weight;
+uniform float decay;
+uniform int NUM_SAMPLES;
+const float aspectRatio=720.0/480.0;
+
+float LinearizeDepth(float depth) 
+{
+    float z = depth * 2.0 - 1.0; // back to NDC 
+    	
+    return (2.0 * near * far) / (far + near - z * (far - near));	
+}
+
+void main(void){
+
+
+        if(sunPos.x<1 && sunPos.x>0 && sunPos.y<1 && sunPos.y>0 ){
+        vec2 tc = textureCoords.xy;
+    	vec2 deltatexCoord = (tc - (sunPos.xy));
+    	deltatexCoord *= 1.0/ float(NUM_SAMPLES);
+    	float illuminationDecay = 1.0f;
+
+    	vec4 godRayColor =vec4(0,0,0,0.4);
+    	float d=pow((tc.x-sunPos.x),2)+pow((tc.y-sunPos.y)/aspectRatio,2);
+    	if(d<rayon && texture(depthTexture,tc).r>=1){
+    	    float cloud=1-texture(cloudTexture,tc).a;
+    	    godRayColor=vec4(color*0.4,0.4)*pow(cloud,1.5);
+    	}
+    	float totalCloud=0;
+    	for(int i = 0 ; i< NUM_SAMPLES ; i++)
+    	{
+    		tc-= deltatexCoord;
+    		vec4 samp =vec4(0,0,0,0.4);
+    		float cloud=1-texture(cloudTexture,tc).a;
+    		totalCloud+=cloud;
+    		float d=pow((tc.x-sunPos.x),2)+pow((tc.y-sunPos.y)/aspectRatio,2);
+            	if(d<rayon && texture(depthTexture,tc).r>=1 && cloud>0.35){
+            	    samp=vec4(color*0.4,0.4);
+            	}
+    		samp *= illuminationDecay*weight;
+    		godRayColor += samp;
+    		illuminationDecay *= decay;
+    	}
+    	 out_Colour=vec4(godRayColor.xyz*exposures,0);
+        }
+	}
