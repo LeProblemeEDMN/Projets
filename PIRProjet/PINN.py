@@ -66,6 +66,7 @@ class PINN(nn.Module):
 
             #Data loss
             yh = self(data_X)
+
             lossData = coeffDatas * torch.mean((yh - data_Y) ** 2)  # use mean squared error
             loss = lossData
 
@@ -142,27 +143,22 @@ class PINN(nn.Module):
 
     def evaluatePrecision(self,X,Y):
         """
-               Plot the values of the solution and the prediction of the PINN on the same plot.
+        Plot the values of the solution and the prediction of the PINN on the same plot.
 
-               :param X: A tensor (size (m;N_INPUT)) of the input data
-               :param Y: A tensor (size (m;N_OUTPUT)) of the solutions
+        :param X: A tensor (size (m;N_INPUT)) of the input data
+        :param Y: A tensor (size (m;N_OUTPUT)) of the solutions
+        :return: An array (size(N_OUTPUT;3)) of the mean median and max error percentage of the prediction for each component.
         """
         Y_v=Y.detach().numpy()
         S_v=self(X).detach().numpy()
         precision=np.zeros((self.N_OUTPUT,3))#mean median max
         for d in range(self.N_OUTPUT):
-            delta=np.abs((S_v[:, d]-Y_v[:, d])/Y_v[:, d])
+            delta=np.abs((S_v[:, d]-Y_v[:, d])/(Y_v[:, d]+1e-15))
             precision[d,0] = np.mean(delta)*100
             precision[d, 1] = np.median(delta)*100
             precision[d, 2] = np.max(delta)*100
-        print("Mean Median Max")
-        print(np.round(precision,decimals=3))
 
-
-        e2=np.sum(np.square(Y_v-S_v),axis=1)
-        print("Error in L2:",math.sqrt(0.5*np.dot((X[1:].detach().numpy()-X[:-1].detach().numpy()).reshape(-1),e2[1:]+e2[:-1])))
-
-        print("Error in infinite norme:", np.max(np.sum(np.abs(Y_v-S_v),axis=1)))
+        return precision
 
     def drawPhase(self,X):
         """

@@ -3,31 +3,20 @@ import numpy as np
 import torch
 
 import FractionnalDerivative
-from PINNExample.DCModel import d_out
-from PINNExample.DCModel import DC
+from FFracDerivativeOld import FFracDerivativeOld
+from PINNExample.test.testFracT2 import d_out,data,F
 import PINN
-import random
+import matplotlib.pyplot as plt
+# Parameters
+NSteps = 3000
+t0 = 0
+tMax = 1
+size = 1
+alpha = 0.95
+N=2*size+1
+x_physics = torch.linspace(0, tMax, N).view(-1, 1).requires_grad_(True)
 
-saveFile="res/alphaMultipleDim"
+ffd_old = FFracDerivativeOld(x_physics, alpha, size)
+res=ffd_old.computeCaputoDerivative(x_physics,torch.pow(x_physics,2))
+print(res/x_physics[1:])
 
-Cinit=0.1
-lamb=0.85
-I=0.02
-NSteps=3000
-t0=0
-tMax=40
-
-DCModel=DC(np.array([Cinit,0.5]),I,0.02,lamb,0.5,0.05,0.05)#en millions
-X_tensor,Y_tensor=DCModel.data(NSteps,t0,tMax)
-dX,dY=DCModel.data(NSteps,t0,tMax,toTensor=False)
-X_data=np.zeros((len(dX),4))
-X_data[:,0]=dX
-X_data[:,1]=Cinit
-X_data[:,2]=I
-X_data[:,3]=lamb
-x_data=torch.Tensor(X_data).view(-1, 4).requires_grad_(True)
-y_data=torch.Tensor(dY).view(-1, 2)
-PINN=PINN.PINN(4,d_out(),32,10)
-PINN.load_state_dict(torch.load(saveFile))
-
-PINN.plotPINN(x_data,y_data,dim=2,dimX=0)

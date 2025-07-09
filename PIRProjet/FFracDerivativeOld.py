@@ -3,7 +3,7 @@ import math
 import torch
 import numpy
 
-class FFracDerivative():
+class FFracDerivativeOld():
     """
     This class is used to make fast approximation of the Caputo Derivative while training the PINN.
     In order to do that it precomputes the integration matrix.
@@ -23,13 +23,13 @@ class FFracDerivative():
         xt = torch.clone(x).view(1, -1)
         xr = x[1:].view(-1, size)[:, size - 1].view(-1, 1)
         matrix = torch.clamp_min(xr - xt, 0)
-        matrix = torch.pow(matrix, m - alpha) / (m - alpha)#now M(i,j) is the integral of (t(i)-s)^(m-1-alpha) between 0 and t(j+1). (t(k) is k-th value of X the time discretion)
-        matrix = 0.5 / math.gamma(m - alpha) *(matrix[:, :-1] - matrix[:, 1:])
+        matrix = torch.pow(matrix, m - alpha-1) #now M(i,j) is the integral of (t(i)-s)^(m-1-alpha) between 0 and t(j+1). (t(k) is k-th value of X the time discretion)
+        matrix = 0.5 / math.gamma(m - alpha) *matrix[:, :-1]#
+        matrix[torch.isinf(matrix)]=0
 
         self.integrationMatrix=matrix.detach().numpy()
         self.alpha=alpha
         self.shape=torch.ones_like(x)
-
     def computeCaputoDerivative(self,x,y):
         """
         Compute the Caputo derivative.
@@ -44,7 +44,6 @@ class FFracDerivative():
         dx = torch.autograd.grad(y, x, self.shape, create_graph=True)[0]
         for i in range(1, m):
             dx = torch.autograd.grad(dx, x, torch.ones_like(dx.view(-1,1)), create_graph=True)[0]
-
         intmat = torch.tensor(self.integrationMatrix)
         return torch.matmul(intmat, (dx[:-1] + dx[1:]))#use the method of the trapeze to approximate the integral.
 
