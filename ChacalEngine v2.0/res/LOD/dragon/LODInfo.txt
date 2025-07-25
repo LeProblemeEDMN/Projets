@@ -1,0 +1,8 @@
+7
+cube8.txt 0.05
+cube7.txt 0.08
+cube6.txt 0.21
+cube5.txt 0.3
+cube4.txt 0.35
+cube3.txt 0.5
+dragon.obj 1

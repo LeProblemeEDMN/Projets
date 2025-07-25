@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<data>
+    <GLSLGeneration>
+        <shader>
+            <vertex>vertexSSAO.txt</vertex>
+            <fragment>fragmentSSAO.txt</fragment>
+            <name>SSAOShader</name>
+        </shader>
+        <postProcessing name="SSAO"/>
+    </GLSLGeneration>
+</data>

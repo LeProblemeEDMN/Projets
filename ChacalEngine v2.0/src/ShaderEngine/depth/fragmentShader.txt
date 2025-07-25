@@ -1,0 +1,13 @@
+#version 330
+in vec2 TexCoords;
+
+out vec4 out_Color;
+
+uniform sampler2D depthMap; // La depth map (texture de profondeur)
+
+void main(void){
+    float depth = texture(depthMap, TexCoords*0.5+0.5).r;
+
+    // Écrire la profondeur dans le z-buffer
+    gl_FragDepth = depth+0.00001;
+}

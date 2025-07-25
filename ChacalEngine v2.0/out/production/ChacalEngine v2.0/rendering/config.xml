@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<data>
+    <GLSLGeneration>
+        <directory name="deffered_rendering"/>
+        <directory name="depthWorkflow"/>
+        <directory name="shadow"/>
+        <directory name="postprocessing"/>
+        <directory name="simple_rendering"/>
+    </GLSLGeneration>
+</data>

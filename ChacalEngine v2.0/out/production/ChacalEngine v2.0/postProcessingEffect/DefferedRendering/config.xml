@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<data>
+    <GLSLGeneration>
+        <shader>
+            <vertex>vertexDR.txt</vertex>
+            <fragment>fragmentDR.glsl</fragment>
+            <name>DefferedRenderingShader</name>
+        </shader>
+        <postProcessing name="DefferedRenderer"/>
+    </GLSLGeneration>
+</data>

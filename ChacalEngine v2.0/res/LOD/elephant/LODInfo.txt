@@ -1,0 +1,7 @@
+6
+elephant7.obj 0.05
+elephant6.obj 0.25
+elephant5.obj 0.35
+elephant3.obj 0.5
+elephant.obj 0.65
+elephant.obj 1

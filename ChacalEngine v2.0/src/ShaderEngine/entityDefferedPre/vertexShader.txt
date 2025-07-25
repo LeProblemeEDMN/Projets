@@ -1,0 +1,51 @@
+#version 330 core
+
+in vec3 position;//INDEX_BINDING:0
+in vec2 textureCoords;//INDEX_BINDING:1
+in vec3 normal;//INDEX_BINDING:2
+in vec3 tangent;//INDEX_BINDING:3
+
+
+layout (location=5) in mat4 transformationMatrix;//INDEX_BINDING:5
+
+out vec2 tCoords_input;//texture coords
+out vec3 toCameraVector;//vector from camera to the object
+out vec3 T;
+out vec3 B;
+out vec3 N;
+
+//proj and view matrix
+uniform mat4 projectionMatrix;//INIT_VALUE:Pipeline.getProjMat()
+uniform mat4 viewMatrix;
+
+//does the mode luse fake lightning (like grass for example).
+uniform float useFakeLightning;
+
+void main(void){
+	tCoords_input=textureCoords;
+    //compute the screen coords
+	vec4 modelPos=vec4(position,1.0);
+	vec4 worldPosition=transformationMatrix*modelPos;
+	vec4 positionRelativToCamera=viewMatrix*worldPosition;
+
+	gl_Position =projectionMatrix* positionRelativToCamera;
+
+    // if we use fake lightning the normal is (0,1,0).
+	vec3 actualNormal=(1-useFakeLightning)*normal+vec3(0.0,useFakeLightning,0.0);
+
+    mat4 modelViewMatrix =  transformationMatrix;//viewMatrix *
+	vec3 surfaceNormal=(modelViewMatrix*vec4(actualNormal,0.0)).xyz;
+    	surfaceNormal=normalize(surfaceNormal);
+
+    vec3 norm = surfaceNormal;
+
+    vec3 tang = normalize((modelViewMatrix * vec4(tangent, 0.0)).xyz);
+
+    vec3 bitang = normalize(cross(norm, tang));
+    T=tang;
+    B=bitang;
+    N=norm;
+    toCameraVector=positionRelativToCamera.xyz;
+
+
+}

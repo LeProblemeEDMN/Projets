@@ -1,0 +1,83 @@
+#version 330 core
+
+in vec3 position;
+in vec2 textureCoords;
+in vec3 normal;
+in vec3 tangent;
+
+
+layout (location=5) in mat4 transformationMatrix;
+
+out vec2 tCoords_input;//texture coords
+out vec3 toCameraVector;//vector from camera to the object
+out float visibility;//visibility of the object (to mix with fog)
+out vec3 toPointVector[5];
+out vec3 worldPos;//position of the fragment
+out vec4[4] shadowCoords;//shadow coords of the
+out float id_shadow;//distance to the camera
+out mat3 toTangentSpace;//tangent space matrix
+out vec3 eyePos;
+
+//proj and view matrix
+uniform mat4 projectionMatrix;
+uniform mat4 viewMatrix;
+uniform mat4 invViewMatrix;
+
+//shadow space matrix
+uniform mat4 toShadowMapSpace[4];
+
+
+
+//points lights used
+uniform float[6] pointInUseVertex;
+//does the mode luse fake lightning (like grass for example).
+uniform float useFakeLightning;
+
+//fog parameters
+uniform float density;
+uniform float gradient;
+
+void main(void){
+	tCoords_input=textureCoords;
+    //compute the screen coords
+	vec4 modelPos=vec4(position,1.0);
+	vec4 worldPosition=transformationMatrix*modelPos;
+	worldPos=worldPosition.xyz;
+	vec4 positionRelativToCamera=viewMatrix*worldPosition;
+	eyePos=positionRelativToCamera.xyz;
+	gl_Position =projectionMatrix* positionRelativToCamera;
+
+    // if we use fake lightning the normal is (0,1,0).
+	vec3 actualNormal=(1-useFakeLightning)*normal+vec3(0.0,useFakeLightning,0.0);
+
+    mat4 modelViewMatrix = viewMatrix * transformationMatrix;
+	vec3 surfaceNormal=(modelViewMatrix*vec4(actualNormal,0.0)).xyz;
+    	surfaceNormal=normalize(surfaceNormal);
+
+    vec3 norm = surfaceNormal;
+
+    vec3 tang = normalize((modelViewMatrix * vec4(tangent, 0.0)).xyz);
+
+    vec3 bitang = normalize(cross(norm, tang));
+
+    toTangentSpace = mat3(
+    	tang.x, bitang.x, norm.x,
+    	tang.y, bitang.y, norm.y,
+    	tang.z, bitang.z, norm.z
+    );
+    toCameraVector=toTangentSpace*(-positionRelativToCamera.xyz);
+
+
+	//toCameraVector=(invViewMatrix*vec4(0.0,0.0,0.0,1.0)).xyz - worldPosition.xyz;
+
+    //compute the visibility of the object.
+	float distance=length(positionRelativToCamera.xyz);
+	visibility=exp(-pow((distance*density),gradient));
+	visibility=clamp(visibility,0.0,1.0);
+
+    //cascaded shadow map
+    id_shadow=-positionRelativToCamera.z;
+    for(int i=0;i<4;i++)shadowCoords[i]=toShadowMapSpace[i]*worldPosition;
+
+
+}

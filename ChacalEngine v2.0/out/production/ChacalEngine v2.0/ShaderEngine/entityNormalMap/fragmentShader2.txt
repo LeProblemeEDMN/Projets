@@ -1,0 +1,375 @@
+#version 330
+
+in vec2 tCoords_input;//texture coords
+in vec3 toCameraVector;//vector from camera to the object
+in float visibility;//visibility of the object (to mix with fog)
+in vec3 worldPos;//position of the fragment
+in vec4[4] shadowCoords;//shadow coords of the
+in float id_shadow;//distance to the camera
+in mat3 toTangentSpace;
+in vec3 eyePos;
+
+out vec4 out_Color;
+//spot light structure
+struct Spot {
+	vec3 attenuation;
+	vec3 lookVec;
+	float angle;
+	float cos_angle;
+	vec3 color;
+	float far;
+};
+
+//point light structure
+struct PointLight {
+	vec3 attenuation;
+	vec3 color;
+	float far;
+};
+
+//parameter of the cascaded shadow map used to find the id of the shadow map used to draw shadows
+uniform float d0_shadow;
+uniform float r_shadow;
+
+//lights
+uniform PointLight[50] points;
+uniform Spot[50] spots;
+
+//positions and shadow matrix of the spots
+uniform vec3[50] positionSpot;
+uniform vec3[50] positionSpotWorld;
+//position of point lights
+uniform vec3[50] positionPoint;
+
+
+//light used
+uniform float[51] spotInUse;// first value is the number of spots /-1 if the spot as no shadow and i>=0 if have the sun texture at spotTexture[i];
+uniform float[51] pointInUse;// first value is the number of points  /-1 if the spot as no shadow and i>=0 if have the sun texture at pointShadows[i];
+
+//points light shadow textures
+uniform samplerCube[10] pointShadows;
+
+//spot light shadow textures;
+uniform mat4[10] spotMatrix;
+uniform sampler2D[10] spotTexture;
+
+//texture of the model
+uniform sampler2D modelTexture;
+//normal map texture
+uniform sampler2D normalTexture;
+//ambient occlusion/roughness/metal(ARM) of the model
+uniform sampler2D ARMtexture;
+//displacement for the parrallax mapping
+uniform sampler2D displacementTexture;
+//normal map of the model
+uniform sampler2D normalMap;
+//ambient occlusion texture
+uniform sampler2D ssaoTexture;
+//cascaded shadow map textures
+uniform sampler2D[4] sunTexture;
+//parameters of the Blinn phong model
+uniform float reflectivity_max;
+uniform float shineDamper_max;
+
+//color of the fog.
+uniform vec3 skyColor;
+//screen size
+uniform vec2 screenSize;
+//shadow map size
+uniform vec2 mapSize;
+
+const int MAX_SPOT=50;
+const int MAX_POINTS=50;
+
+const float near=0.1;
+const float PI = 3.14159265359;
+
+float sunShadow(int id);
+float LinearizeDepth(float depth,float far);
+vec2 ParallaxMapping(vec2 texCoords, vec3 viewDir);
+vec2 SteepParallaxMapping(vec2 texCoords, vec3 viewDirTS);
+
+
+float DistributionGGX(vec3 N, vec3 H, float roughness)
+{
+    float a      = roughness*roughness;
+    float a2     = a*a;
+    float NdotH  = max(dot(N, H), 0.0);
+    float NdotH2 = NdotH*NdotH;
+
+    float num   = a2;
+    float denom = (NdotH2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+
+    return num / denom;
+}
+
+float GeometrySchlickGGX(float NdotV,float k)
+{
+
+
+    float num   = NdotV;
+    float denom = NdotV * (1.0 - k) + k;
+
+    return num / denom;
+}
+float GeometrySmith(vec3 N, vec3 V, vec3 L,float k)
+{
+    float NdotV = max(dot(N, V), 0.0);
+    float NdotL = max(dot(N, L), 0.0);
+    float ggx2  = GeometrySchlickGGX(NdotV, roughness,k);
+    float ggx1  = GeometrySchlickGGX(NdotL, roughness,k);
+
+    return ggx1 * ggx2;
+}
+
+vec3 fresnelSchlick(float cosTheta, vec3 F0)
+{
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+vec3 light(vec3 toLightVector,vec3 lightColor,vec3 attenuation,vec3 unitCameraVector,float k){
+//toLightVector: vec3 of light position to which we substract the object position
+//attenuation: vec3 attenuation coefficients.
+//lightColor: color of light
+//unitCameraVector: vec3 normalize of the vector going from fragment to camera.
+//k: parameter of GeometrySchlickGGX.
+//
+    // calculate per-light radiance
+    vec3 L = normalize(toLightVector);
+    vec3 H = normalize(V + L);
+    float distance    = length(toLightVector);
+    float attenuation = 1.0 / (attenuation.x+attenuation.y*distance+attenuation.z*distance * distance);
+    vec3 radiance     = lightColor * attenuation;
+
+    // cook-torrance brdf
+    float NDF = DistributionGGX(N, H, roughness);
+    float G   = GeometrySmith(N, V, L, roughness);
+    vec3 F    = fresnelSchlick(max(dot(H, V), 0.0), F0);
+
+    vec3 kS = F;
+    vec3 kD = vec3(1.0) - kS;
+    kD *= 1.0 - metallic;
+
+    vec3 numerator    = NDF * G * F;
+    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
+    vec3 specular     = numerator / denominator;
+
+    // add to outgoing radiance Lo
+    float NdotL = max(dot(N, L), 0.0);
+    Lo += (kD * albedo / PI + specular) * radiance * NdotL;
+}
+
+//TODO
+//pr les spots transformer les pos sur la shadow map dans le vertex shader et pas dans le fragment shader
+void main(void){
+    vec3 unitCameraVector=normalize(toCameraVector);
+    vec2 tCoords=ParallaxMapping(tCoords_input, unitCameraVector);
+
+    //check que la texture n'est pas transparente
+	vec4 textureColour=texture(modelTexture,tCoords );
+	if(textureColour.a<0.5 ){//tCoords.x > 1.0 || tCoords.y > 1.0 || tCoords.x < 0.0 || tCoords.y < 0.0 ||
+		discard;
+	}
+    out_Color=textureColour;
+    vec3 totalDiffuse= vec3(0.0);
+    vec3 totalSpecular= vec3(0.0);
+
+    //calcule quelle shadow map doit être utilise à partir de la distance à al camera
+    int id_shadow_int=int(log(1-id_shadow/d0_shadow*(1-r_shadow))/log(r_shadow));
+
+    vec3 normalMapValue = 2.0 * texture(normalTexture, tCoords).rgb - 1.0;
+    vec3 unitNormal = normalize(vec3(normalMapValue.r,-normalMapValue.g,normalMapValue.b));
+
+     float r = (roughness + 1.0);
+        float k = (r*r) / 8.0;
+
+
+    //sample the AO map:
+    vec4 arm_values=texture(ARMtexture,tCoords );
+    float shineDamper=1/(arm_values.y*arm_values.y+0.0000001);
+    float reflectivity=reflectivity_max*arm_values.z+(1-arm_values.z)*(1-arm_values.y);
+
+	//-----------SPOTS------------------------------------------------
+	//On peut utiliser au maximum 5 spots light/objet
+    for(int i=0;i<int(spotInUse[0]+0.1);i++){
+        vec3 dirVec=spots[i].lookVec;
+        vec3 toLightVector= toTangentSpace*(positionSpot[i] -eyePos);
+        float distance=length(toLightVector);
+        vec3 unitLightVector=normalize(toLightVector);
+        float ac=dot(-normalize(positionSpotWorld[i]-worldPos),dirVec);
+
+        //on check qu'on est bien dans l'angle de vue du spot.
+        if(ac>spots[i].cos_angle && distance<spots[i].far){
+
+            //smooth border of the spot
+            float shadowFactor=min(1,exp(50*(spots[i].angle-0.05-ac)));
+            if(spotInUse[i+1]>=0){
+                //on calcule l'ombre du spot
+                int id_shadow=int(pointInUse[i+1]+0.1);
+                vec4 s=spotMatrix[id_shadow]*vec4(worldPos,1);
+                s.xyz/=s.w;
+                s.xyz*=0.5;
+                s.xyz+=0.5;
+
+                float tz=texture(spotTexture[id_shadow],s.xy).r;
+                float z=LinearizeDepth(s.z,spots[id_shadow].far)/spots[id_shadow].far;
+                //si l'objet est dans l'ombre
+                if((z-tz)>0.005){
+                   shadowFactor*=0.7;
+                }
+            }
+            //Blinn-phong lightning
+            float attenuationFactor=shadowFactor/(spots[i].attenuation.x+(spots[i].attenuation.y*distance)+(spots[i].attenuation.z*distance*distance));
+
+            float nDot1=dot(unitNormal,unitLightVector);
+            float brightness=max(nDot1,0.0);
+            vec3 lightDirection=-unitLightVector;
+            vec3 reflectedLightDirection=reflect(lightDirection,unitNormal);
+
+            float specularFactor=dot(reflectedLightDirection,unitCameraVector);
+            specularFactor=max(specularFactor,0.0);
+            float dampedFactor=pow(specularFactor,shineDamper);
+            //accumulate the light
+            totalDiffuse=totalDiffuse+(brightness*spots[i].color)*attenuationFactor;
+            totalSpecular=totalSpecular+(dampedFactor*reflectivity*spots[i].color)*attenuationFactor;
+        }
+    }
+
+	//-----------POINTS --------------------------------------
+	// on peut utiliser jusqu'à 5 point light. (0 est le soleil).
+	//
+	for(int i=0;i<int(pointInUse[0]+0.1);i++){
+        vec3 toLightVector= toTangentSpace*(positionPoint[i] -eyePos);
+
+        float distance=length(toLightVector);
+        if(distance<points[i].far){
+            vec3 unitLightVector=normalize(toLightVector);
+            float shadowFactor=1;
+
+            if(i==0)shadowFactor=sunShadow(id_shadow_int);
+            else if(pointInUse[i+1]+0.1>=0){
+                float z=(distance-0.1)/points[i].far;
+                float tz=texture(pointShadows[int(pointInUse[i+1]+0.1)],normalize(-toLightVector)).r;
+                float v=z-tz;
+
+                //on test l'ombre d'un point normal
+                if(v>0.005){
+                    shadowFactor=0.3;
+                }
+            }
+            //facteur d'attenuation de la lumière.
+            float attenuationFactor=shadowFactor/(points[i].attenuation.x+(points[i].attenuation.y*distance)+(points[i].attenuation.z*distance*distance));
+
+            //Blinn-phong lightning
+            float nDot1=dot(unitNormal,unitLightVector);
+            float brightness=max(nDot1,0.0);
+            vec3 lightDirection=-unitLightVector;
+            vec3 reflectedLightDirection=reflect(lightDirection,unitNormal);
+
+            float specularFactor=dot(unitNormal,normalize(unitLightVector+unitCameraVector));
+            specularFactor=max(specularFactor,0.0);
+            float dampedFactor=pow(specularFactor,shineDamper);
+            //accumulate the light
+            totalDiffuse=totalDiffuse+(brightness*points[i].color)*attenuationFactor;
+            totalSpecular=totalSpecular+(dampedFactor*reflectivity*points[i].color)*attenuationFactor;
+        }
+	}
+	//---------------------FIN LUMIERES-----------------------------------
+
+    //ambient occlusion obtained with SSAO
+    float ambientOcclusion=texture(ssaoTexture,gl_FragCoord.xy/screenSize ).r*pow(arm_values.x,2);
+
+	out_Color = textureColour*0.3*ambientOcclusion+0.7*vec4(totalDiffuse,0.0)*textureColour+vec4(totalSpecular,1.0);
+    //mix the light color and the sky color
+	out_Color =mix(vec4(skyColor,1.0),out_Color,visibility);
+
+
+    /*vec3 val=texture(sunTexture[0],shadowCoords[0].xy).rgb;
+            float kuns=val.x-shadowCoords[0].z+0.0005;
+            //if(val.x>=1)kuns=0.00001;
+            float k=abs(kuns);
+            float var=max(val.y-val.x*val.x,0.00002);
+            float chebytchev=(var)/(var+k*k);
+            float indic=0.5+0.5*kuns/k;//incicatrice 1 si a la lumiere 0 sinon
+    out_Color.rgb=texture(sunTexture[0],shadowCoords[0].xy).rgb;//texture(sunTexture[1],tCoords_input).rgb;
+    out_Color.rgb=vec3(pow(texture(sunTexture[0],shadowCoords[0].xy).r,4)*1,0,0);//texture(sunTexture[1],tCoords_input).r,0,0);
+ out_Color.rgb=vec3(pow(indic+(1-indic)*chebytchev,2),0,0);//indic-(1-2*indic)*chebytchev*/
+
+}
+
+//Compute the shadow with shadow mapping
+float sunShadow(int id_map){
+//check if we are inside the box.
+	if(shadowCoords[id_map].x<0 || shadowCoords[id_map].x>1  ||shadowCoords[id_map].y<0 || shadowCoords[id_map].y>1 || shadowCoords[id_map].z<0 )return 1;//|| shadowCoords[id_map].z>1
+	//if it is not the closest shadow map we dont do soft shadows
+    if(id_map>0){
+    	float objectNearestLight=texture(sunTexture[id_map],shadowCoords[id_map].xy).r;
+        if(shadowCoords[id_map].z-0.005<objectNearestLight){
+            return 1;
+        }
+        return 0;
+    }
+
+    vec3 val=texture(sunTexture[id_map],shadowCoords[id_map].xy).rgb;
+    float kuns=val.x-shadowCoords[id_map].z+0.0005;
+    float k=abs(kuns);
+    float var=max(val.y-val.x*val.x,0.00002);
+    float chebytchev=(var)/(var+k*k);
+    float indic=0.5+0.5*kuns/k;//incicatrice 1 si a la lumiere 0 sinon
+    return pow(indic+(1-indic)*chebytchev,2);
+}
+
+float LinearizeDepth(float depth,float far)
+{
+    float z = depth * 2.0 - 1.0; // back to NDC
+
+    return (2.0 * near * far) / (far + near - z * (far - near));
+}
+vec2 ParallaxMapping(vec2 texCoords, vec3 viewDir)
+{
+    float height_scale=0.01;
+    float height =  1-texture(displacementTexture, texCoords).b;
+    vec2 p = viewDir.xy / viewDir.z * (height * height_scale);
+    return texCoords-p ;
+}
+
+vec2 SteepParallaxMapping(vec2 texCoords, vec3 viewDirTS){
+
+    // Calcul des UV de départ et de fin
+    float heightScale = 0.1;
+    int numSamples=200;
+    vec2 uvStart = texCoords;                           // Point de départ
+    vec2 uvEnd = texCoords + viewDirTS.xy * heightScale; // Point de fin
+
+    // Pas pour les UV à chaque itération
+    vec2 deltaUV = (uvEnd - uvStart) / float(numSamples);
+
+    // Variables pour stocker l'intersection
+    float currentHeight = 1.0; // La hauteur actuelle (départ à 1.0)
+    float prevHeight = 1.0;    // Hauteur du précédent échantillon
+    vec2 currentUV = uvStart;
+
+    // Échantillonnage
+    for (int i = 0; i < numSamples; ++i) {
+        // Échantillonner la height map
+        currentHeight = texture(displacementTexture, currentUV).b;
+
+        // Vérifier l'intersection
+        if (currentHeight < 1.0 - float(i) / float(numSamples)) {
+            // Intersection détectée, arrêter la boucle
+            break;
+        }
+
+        // Passer au prochain échantillon
+        prevHeight = currentHeight;
+        currentUV += deltaUV;
+    }
+
+    // Interpolation entre les deux derniers points pour améliorer la précision
+    float alpha = (1.0 - float(numSamples) / float(numSamples)) - prevHeight;
+    alpha /= (currentHeight - prevHeight);
+    currentUV -= deltaUV * (1.0 - alpha);
+
+    return currentUV;
+}

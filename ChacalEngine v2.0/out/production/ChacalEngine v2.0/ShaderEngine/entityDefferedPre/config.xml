@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<data>
+    <GLSLGeneration>
+        <shader>
+            <vertex>vertexShader.txt</vertex>
+            <fragment>fragmentShader.txt</fragment>
+            <name>EntityDefferedPreShader</name>
+        </shader>
+    </GLSLGeneration>
+</data>

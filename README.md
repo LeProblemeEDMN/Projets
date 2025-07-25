@@ -11,6 +11,17 @@ ChacalEngine is a 3D game engine using OpenGL (using the LWJGL java library). Th
 
 The game engine have been develloped in 2018 with the help of a tutorial made by Thin Matrix.
 
+## ChacalEngine v2.0
+ChacalEngine is an upgraded version  3D game engine using OpenGL (using the LWJGL java library). This game engine mainly features:
+-Physic based rendering and parallax mappings
+-Both Forward and Deffered rendering 
+-Level Of Detail
+-Graphical interface
+-Normal maps implementation
+-Post processing pipeline and rendering worflows choosed upon executions via .xml files
+
+The game engine is currently in devellopement. It generates files upon compilation to simplify the gestions of shaders and pipelines.
+
 ## Fourrier Upscaling
 This project consisted to implement a image upscaler by using Fourrier series.
 

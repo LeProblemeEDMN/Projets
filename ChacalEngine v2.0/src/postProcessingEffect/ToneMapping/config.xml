@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<data>
+    <GLSLGeneration>
+        <shader>
+            <vertex>vertexTM.txt</vertex>
+            <fragment>fragmentTM.txt</fragment>
+            <name>ToneMappingShader</name>
+        </shader>
+        <postProcessing name="ToneMapping"/>
+    </GLSLGeneration>
+</data>

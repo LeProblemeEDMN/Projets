@@ -1,0 +1,20 @@
+#version 330 core
+
+in vec2 TexCoords; // Coordonnées de texture transmises par le vertex shader
+
+uniform vec3 color;
+uniform float useText;
+uniform sampler2D textureGUI;
+uniform float alpha;
+// Output
+out vec4 out_color;
+
+void main() {
+    if(useText>0.5){
+        out_color=texture(textureGUI,TexCoords);
+        if(out_color.r>0.99 && out_color.g>0.99 && out_color.b>0.99)discard;
+    }else{
+        out_color=vec4(color,alpha);
+    }
+
+}

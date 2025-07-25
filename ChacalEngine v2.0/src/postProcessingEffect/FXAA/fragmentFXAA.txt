@@ -1,0 +1,134 @@
+#version 330 core
+//BEGINNING_INIT_CODE
+//for (int i = 0; i <= 6; i++) strides.loadInt(1,i);// 0 a 6
+//for (int i = 7; i <= 10; i++) strides.loadInt(2,i);// 7 a 10
+//for (int i = 11; i <= 12; i++) strides.loadInt(4,i);// 11 a 12
+//strides.loadInt(6,13);
+//strides.loadInt(8,14);
+//END_INIT_CODE
+in vec2 TexCoords; // Coordonnées de texture transmises par le vertex shader
+
+// Uniforms
+// Texture contenant la depth map
+uniform sampler2D screenTexture;//INIT_VALUE:0
+// inverse de la taille de l'écran (1/w,1/h)
+uniform vec2 inverseScreenSize;//RESIZE_INIT_VALUE:new Vector2f(1.0f/ DisplayManager.getWidth(),1.0f/DisplayManager.getHeight())
+uniform int[15] strides;
+// Output
+out vec3 out_color;
+
+float rgb2luma(vec3 rgb){
+    return sqrt(dot(rgb, vec3(0.299, 0.587, 0.114)));
+}
+const int size_echant=15;
+void main() {
+    vec3 colorCenter = texture(screenTexture,TexCoords).rgb;
+    float lumaCenter=rgb2luma(colorCenter);
+    vec3 texDown=textureOffset(screenTexture,TexCoords,ivec2(0,-1)).rgb;
+    float lumaDown = rgb2luma(texDown);
+    vec3 texUp=textureOffset(screenTexture,TexCoords,ivec2(0,1)).rgb;
+    float lumaUp = rgb2luma(texUp);
+    vec3 texLeft=textureOffset(screenTexture,TexCoords,ivec2(-1,0)).rgb;
+    float lumaLeft = rgb2luma(texLeft);
+    vec3 texRight=textureOffset(screenTexture,TexCoords,ivec2(1,0)).rgb;
+    float lumaRight = rgb2luma(texRight);
+
+    float lumaMin = min(lumaCenter,min(min(lumaDown,lumaUp),min(lumaLeft,lumaRight)));
+    float lumaMax = max(lumaCenter,max(max(lumaDown,lumaUp),max(lumaLeft,lumaRight)));
+
+    // Compute the delta.
+    float lumaRange = lumaMax - lumaMin;
+
+    // If the luma variation is lower that a threshold (or if we are in a really dark area), we are not on an edge, don't perform any AA.
+    if(lumaRange < max(0.0612,lumaMax*0.25)){
+        out_color = colorCenter;
+
+        return;
+    }
+
+    float lumaDownLeft = rgb2luma(textureOffset(screenTexture,TexCoords,ivec2(-1,-1)).rgb);
+    float lumaUpRight = rgb2luma(textureOffset(screenTexture,TexCoords,ivec2(1,1)).rgb);
+    float lumaUpLeft = rgb2luma(textureOffset(screenTexture,TexCoords,ivec2(-1,1)).rgb);
+    float lumaDownRight = rgb2luma(textureOffset(screenTexture,TexCoords,ivec2(1,1)).rgb);
+
+    //detecter si c'est le pixel dessus ou dessous du bord -> 4 gradient dessus-center et centre -dessous
+    float grad_down=abs(lumaCenter-lumaDown+lumaLeft-lumaDownLeft+lumaRight-lumaDownRight);
+    float grad_up=abs(lumaUp-lumaCenter+lumaUpLeft-lumaLeft+lumaUpRight-lumaRight);
+    float grad_right=abs(lumaRight-lumaCenter+lumaUpRight-lumaUp+lumaDownRight-lumaDown);
+    float grad_left=abs(lumaCenter-lumaLeft+lumaDown-lumaDownLeft+lumaUp-lumaUpLeft);
+
+    //shiter coord d'un demi pixel
+    float max_grad_vert=max(grad_down,grad_up);
+    float max_grad_hori=max(grad_right,grad_left);
+    float maxi=max(max(grad_down,grad_up),max(grad_right,grad_left))-0.0001;
+
+    vec2 offset=vec2(0,0);//direction of the edge
+    vec2 orthogonal=vec2(0,0);//orthogonal vector (used to compute the edge length later).
+    if(maxi<=grad_down){
+        offset.y=-inverseScreenSize.y;
+        orthogonal.x=inverseScreenSize.x;
+    }else if(maxi<=grad_up){
+        offset.y=inverseScreenSize.y;
+        orthogonal.x=inverseScreenSize.x;
+    }else if(maxi<=grad_right){
+         offset.x=inverseScreenSize.x;
+         orthogonal.y=inverseScreenSize.y;
+    }else{
+        offset.x=-inverseScreenSize.x;
+        orthogonal.y=inverseScreenSize.y;
+    }
+    vec2 coords=TexCoords+0.5*offset;
+    vec3 mid=texture(screenTexture,coords).rgb;
+    float lumaMid=rgb2luma(mid);
+    //detecter longueur segment
+    //au deux bouts détecter quel cote est l'objet et lequel est le ciel (pr savoir
+    //luminance de ce pixel:l luminance bord1:b1 et bord 2 :b2
+    //d(x,bi) est la distance de d à bi
+
+    float c_m=0;
+    float c_p=0;
+    int c_m_id=1;
+    int c_p_id=1;
+    c_m=strides[0];
+    float lumaOther=rgb2luma(texture(screenTexture,coords-c_m*orthogonal).rgb);
+    float tresh=0.08;
+    while(abs(lumaOther-lumaMid)<tresh && c_m_id<size_echant){
+        c_m+=strides[c_m_id];
+        c_m_id++;
+        lumaOther=rgb2luma(texture(screenTexture,coords-c_m*orthogonal).rgb);
+    }
+    float luma_extreme_minus=rgb2luma(texture(screenTexture,TexCoords-c_m*orthogonal).rgb);
+
+    c_m-=strides[c_m_id-1]/2;
+
+    c_p=strides[0];
+    tresh=0.08;//the first thresh is higher
+    lumaOther=rgb2luma(texture(screenTexture,coords+c_p*orthogonal).rgb);
+    while(abs(lumaOther-lumaMid)<tresh && c_p_id<size_echant){
+        c_p+=strides[c_p_id];
+        c_p_id+=1;
+        lumaOther=rgb2luma(texture(screenTexture,coords+c_p*orthogonal).rgb);
+    }
+    float luma_extreme_plus=rgb2luma(texture(screenTexture,TexCoords+c_p*orthogonal).rgb);
+
+    c_p-=strides[c_p_id-1]/2;
+
+    //en fct longeur calculer displacmenet pixel proportionellement
+    //si |l-b1|<|l-b2| alors displ=dir*0.5*d(x,b2)/(d(x,b1)+d(x,b2))
+    //sinon displ=dir*0.5*d(x,b1)/(d(x,b1)+d(x,b2))
+    out_color=vec3(abs(offset)/inverseScreenSize,0);
+    if(c_m+c_p<3){
+        out_color=texture(screenTexture,TexCoords+offset*0.33).rgb;
+    //pixel actuel color is closer to the plus side -> red
+    }else if(abs(lumaCenter-luma_extreme_minus)>abs(lumaCenter-luma_extreme_plus)){
+        float factor=(0.05+c_p)/(c_m+c_p+0.1);
+        out_color=texture(screenTexture,TexCoords+offset*factor*0.5).rgb;
+    }else{
+        float factor=(0.05+c_m)/(c_m+c_p+0.1);
+        out_color=texture(screenTexture,TexCoords+offset*factor*0.5).rgb;
+    }
+
+
+
+
+}

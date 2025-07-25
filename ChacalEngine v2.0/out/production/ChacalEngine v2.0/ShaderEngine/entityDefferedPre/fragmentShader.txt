@@ -1,0 +1,56 @@
+#version 330
+
+
+in vec2 tCoords_input;//texture coords
+in vec3 toCameraVector;//vector from camera to the object
+in vec3 T;
+in vec3 B;
+in vec3 N;
+
+layout(location = 0) out vec4 gAlbedo;
+layout(location = 1) out vec4 gNormal;
+layout(location = 2) out vec4 ARM; // ou autre info (spec, AO, etc.)
+
+
+//texture of the model
+uniform sampler2D modelTexture;//INIT_VALUE:0
+//ambient occlusion/roughness/metal(ARM) of the model
+uniform sampler2D ARMtexture;//INIT_VALUE:1
+//normal map texture
+uniform sampler2D normalTexture;//INIT_VALUE:2
+//displacement for the parrallax mapping
+uniform sampler2D displacementTexture;//INIT_VALUE:3
+
+vec2 ParallaxMapping(vec2 texCoords, vec3 viewDir)
+{
+    float height_scale=0.00001;
+    float height =  1-texture(displacementTexture, texCoords).b;
+    vec2 p = viewDir.xy / viewDir.z * (height * height_scale);
+    return texCoords ;//-p
+}
+
+void main(void){
+    vec3 unitCameraVector=normalize(toCameraVector);
+    vec2 tCoords=ParallaxMapping(tCoords_input, unitCameraVector);
+
+    //check que la texture n'est pas transparente
+	vec4 textureColour=texture(modelTexture,tCoords );
+	if(textureColour.a<0.5 ){//tCoords.x > 1.0 || tCoords.y > 1.0 || tCoords.x < 0.0 || tCoords.y < 0.0 ||
+		discard;
+	}
+
+    vec3 normalMapValue = 2.0 * texture(normalTexture, tCoords).rgb - 1.0;
+    vec3 unitNormal = normalize(vec3(normalMapValue.r,normalMapValue.g,normalMapValue.b));
+
+    //sample the AO map:
+    vec4 arm_values=texture(ARMtexture,tCoords );
+
+	gAlbedo =textureColour;
+	vec3 world_normal=unitNormal.x*T+unitNormal.y*B+unitNormal.z*N;
+    gNormal=vec4(world_normal*0.5+0.5,1);
+    ARM=arm_values;
+    //depth_displacement=1;//vec4(gl_FragCoord.z,1,1,1);
+
+}
+
+

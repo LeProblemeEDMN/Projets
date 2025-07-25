@@ -1,0 +1,15 @@
+#version 330 core
+
+in vec2 TexCoords; // Coordonnées de texture transmises par le vertex shader
+
+uniform sampler2D fontTexture;
+uniform vec3 color;
+
+// Output
+out vec4 out_color;
+
+void main() {
+vec4 color_t = texture(fontTexture, TexCoords);
+if(color_t.r<0.1)discard;
+   out_color=vec4(color,1);//vec4(TexCoords,0,1);//color;//
+}

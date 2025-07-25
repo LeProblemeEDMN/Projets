@@ -1,0 +1,70 @@
+#version 330 core
+
+//BEGINNING_INIT_CODE:float radius_value,float bias_value
+//Matrix4f invProjMat = new Matrix4f();
+//Pipeline.getProjMat().invert(invProjMat);
+//for (int i = 0; i < Constantes.SSAO_NUMBER_SAMPLES.getInt(); i++) {
+//  Vector3 sample=new Vector3(Math.random()*2-1,Math.random()*2-1,Math.random()*2-1).normalize();
+//  float length=(float) (Math.random()*Math.random())*radius_value;
+//  sample.mul(length);
+//  samples.loadVector3(sample,i);
+//}
+//END_INIT_CODE
+
+//BEGINNING_RESIZE_CODE:
+//Matrix4f invProjMat = new Matrix4f();
+//Pipeline.getProjMat().invert(invProjMat);
+//END_RESIZE_CODE
+
+in vec2 TexCoords; // Coordonnées de texture transmises par le vertex shader
+
+// Uniforms
+uniform sampler2D depthMap;//INIT_VALUE:0
+// Tableau de points d’échantillonnage dans l'espace tangent
+uniform vec3 samples[64];
+// Matrice de projection utilisée pour reconstruire la position
+uniform mat4 projection;//RESIZE_INIT_VALUE:Pipeline.getProjMat()
+uniform mat4 projectionInverse;//RESIZE_INIT_VALUE:invProjMat
+// Rayon d'échantillonnage pour le SSAO
+uniform float radius;//INIT_VALUE:radius_value
+// Biais pour éviter l'auto-occlusion
+uniform float bias;//INIT_VALUE:bias_value
+
+// Output
+out float ssao;
+
+void main() {
+    float depth = texture(depthMap, TexCoords).r;
+
+    // Reconstructs position en espace vue (View Space)
+    vec3 fragPos = vec3(TexCoords, depth); // Position en espace écran
+    fragPos.xy = (fragPos.xy * 2.0 - 1.0); // De NDC (0-1) à Clip Space (-1 à 1)
+
+    vec4 viewPos = (projectionInverse * vec4(fragPos, 1.0)); // Reconstruction
+    fragPos.xyz=viewPos.xyz/viewPos.w;
+
+    // Calcul de l’occlusion ambiante
+    float occlusion = 0.0;
+
+    for (int i = 0; i < 64; ++i) {
+        // Position de l'échantillon dans l'espace tangent
+        vec3 sample = fragPos + samples[i];
+        //ssao = sample.x;
+        // Reprojection dans l'espace écran
+        vec4 offset = projection * vec4(sample, 1.0);
+        offset.xyz /= offset.w; // Perspective division
+        offset.xy = offset.xy * 0.5 + 0.5; // De clip space (-1,1) à NDC (0,1)
+
+        // Profondeur du pixel échantillonné
+        float sampleDepth = texture(depthMap, offset.xy).r;
+
+        // Reprojeté en profondeur espace vue
+        float rangeCheck = smoothstep(0.0, 1.0, radius / abs(samples[i].z));
+        if (sampleDepth > offset.z - bias) {
+            occlusion += rangeCheck; // Accumuler l’occlusion
+        }
+    }
+
+    occlusion =  ((occlusion) / 64.0); // Normalisation et inversion
+    ssao=occlusion;
+}

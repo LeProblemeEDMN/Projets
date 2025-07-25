@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<data>
+    <GLSLGeneration>
+        <directory name="ShaderEngine"/>
+        <directory name="postProcessingEffect"/>
+        <directory name="rendering"/>
+    </GLSLGeneration>
+
+    <runtimePostProcessing>
+        <effect order="0">DefferedRendering</effect>
+        <effect order="1">FXAA</effect>
+        <effect order="2">ToneMapping</effect>
+        <effect order="-1">SSGI</effect>
+        <effect order="-1">HorizontalBlur</effect>
+        <effect order="-1">VerticalBlur</effect>
+    </runtimePostProcessing>
+
+    <runtimeWorkflow>
+        <workflow order="0">CascadeShadowMap</workflow>
+        <workflow order="1">DefferedRendering</workflow>
+    </runtimeWorkflow>
+</data>

@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<data>
+    <GLSLGeneration>
+        <shader>
+            <vertex>vertexFXAA.txt</vertex>
+            <fragment>fragmentFXAA.txt</fragment>
+            <name>FXAAShader</name>
+        </shader>
+        <postProcessing name="FXAA"/>
+    </GLSLGeneration>
+</data>

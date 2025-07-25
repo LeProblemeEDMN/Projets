@@ -1,0 +1,18 @@
+#version 330 core
+
+in vec2 TexCoords; // Coordonnées de texture transmises par le vertex shader
+
+// Uniforms
+// Texture contenant la depth map
+uniform sampler2D colourMap;//INIT_VALUE:0
+uniform float exposure;//INIT_VALUE:1
+uniform float gamma;//INIT_VALUE:2.2f
+// Output
+out vec4 out_color;
+
+void main() {
+   vec3 hdrColor=texture(colourMap,TexCoords).rgb;
+   vec3 mapped=vec3(1.0)-exp(-hdrColor*exposure);
+   //mapped=pow(mapped,vec3(1.0/gamma));
+   out_color=vec4(mapped,1);
+}

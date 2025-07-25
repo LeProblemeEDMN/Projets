@@ -1,0 +1,8 @@
+7
+montagne7.obj 0.05
+montagne6.obj 0.08
+montagne5.obj 0.21
+montagne4.obj 0.3
+montagne3.obj 0.35
+montagne2.obj 0.5
+montagne.obj 1

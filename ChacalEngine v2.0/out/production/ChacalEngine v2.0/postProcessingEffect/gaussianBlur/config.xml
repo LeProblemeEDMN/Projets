@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<data>
+    <GLSLGeneration>
+        <shader>
+            <vertex>horizontalBlurVertex.txt</vertex>
+            <fragment>blurFragment.txt</fragment>
+            <name>HorizontalBlurShader</name>
+        </shader>
+        <shader>
+            <vertex>verticalBlurVertex.txt</vertex>
+            <fragment>blurFragment.txt</fragment>
+            <name>VerticalBlurShader</name>
+        </shader>
+        <postProcessing name="VerticalBlur"/>
+        <postProcessing name="HorizontalBlur"/>
+    </GLSLGeneration>
+</data>
